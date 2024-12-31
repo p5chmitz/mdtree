@@ -1,11 +1,9 @@
 use std::fs::File; // Used by parse()
-//use std::io::{self, BufRead, BufReader}; // Used by parse()
 use std::io::{BufRead, BufReader}; // Used by parse()
-use std::path::Path; // Used by example()
+use std::path::Path; // Used by parse()
 
 use regex::Regex; // Used by parse()
 
-/** Used for parsing Markdown headings; Heading is T */
 #[derive(Clone, Debug)]
 struct Heading {
     level: usize,
@@ -68,15 +66,14 @@ struct GenTree<T> {
 }
 impl<T> GenTree<T> {
 
-    // NOTE: Only used in testing
-    fn _children(&self, node: Pos<T>) -> Option<Vec<Pos<T>>> {
-        if let Some(c) = node {
-            Some(unsafe { (*c).children.clone() })
-        } else {
-            None
-        }
+    /** Instantiates a new Tree with a default root */
+    fn new() -> GenTree<Heading> {
+        let data = Heading::new_root(0);
+        let root: Pos<Heading> = Some(Box::into_raw(Node::build(Some(data)))); // Placeholder
+        GenTree { root, size: 1 }
     }
 
+    /** Returns an immutable reference to a position's data */
     fn get(&self, node: &Pos<T>) -> Option<&T> {
         // Imperative approach
         if let Some(n) = node {
@@ -88,46 +85,13 @@ impl<T> GenTree<T> {
         //node.as_ref().and_then(|n| unsafe { (*(*n)).data.as_ref() })
     }
 
+    /** Returns the parent of a given node, if it exists */
     fn parent(&self, node: Pos<T>) -> Option<Pos<T>> {
         if let Some(n) = node {
             unsafe { Some((*n).parent) }
         } else {
             None
         }
-    }
-
-    // NOTE: ONly used in testing
-    fn _is_root(&self, node: Pos<T>) -> bool {
-        node == self.root
-    }
-
-    //fn is_leaf(&self, node: Pos<T>) -> bool {
-    //    if let Some(n) = node {
-    //        unsafe { (*n).children.len() == 0 }
-    //    } else {
-    //        false
-    //    }
-    //}
-
-    // NOTE: Only used in testing
-    fn _depth(&self, node: Pos<T>) -> Option<usize> {
-        let mut d = 1;
-        let mut cursor = node;
-        while !self._is_root(cursor) {
-            cursor = self.parent(cursor)?;
-            d += 1;
-        }
-        Some(d)
-    }
-
-    fn _height(&self, node: Pos<T>) -> Option<usize> {
-        let mut h = 0;
-        if let Some(n) = node {
-            for e in unsafe { &(*n).children } {
-                h = std::cmp::max(h, self._height(Some(e.expect("uh oh")))?)
-            }
-        }
-        Some(h + 1)
     }
 
     /** Adds a child to a parent's child arena Vec<Pos<T>> */
@@ -146,16 +110,75 @@ impl<T> GenTree<T> {
         }
     }
 
+    // NOTE: The rest of the methods in this impl block are just used in testing
+
+    /** Returns a cloned set of children from a given position, if any */
+    fn _children(&self, node: Pos<T>) -> Option<Vec<Pos<T>>> {
+        if let Some(c) = node {
+            Some(unsafe { (*c).children.clone() })
+        } else {
+            None
+        }
+    }
+
+    /** Returns true if the given position is the tree's root */
+    fn _is_root(&self, node: Pos<T>) -> bool {
+        node == self.root
+    }
+
+    /** Returns the depth for a given node */
+    fn _depth(&self, node: Pos<T>) -> Option<usize> {
+        let mut d = 1;
+        let mut cursor = node;
+        while !self._is_root(cursor) {
+            cursor = self.parent(cursor)?;
+            d += 1;
+        }
+        Some(d)
+    }
+
+    /** Returns the height of a sub-tree at a given position */
+    fn _height(&self, node: Pos<T>) -> Option<usize> {
+        let mut h = 0;
+        if let Some(n) = node {
+            for e in unsafe { &(*n).children } {
+                h = std::cmp::max(h, self._height(Some(e.expect("uh oh")))?)
+            }
+        }
+        Some(h + 1)
+    }
+
 }
 
-// Associated and utility functions
-///////////////////////////////////
+impl<T> Drop for GenTree<T> {
+    fn drop(&mut self) {
+        /** Recursive tree destructor */
+        // TODO: Update implementation with NonNull
+        // to avoid null pointer dereference check
+        unsafe fn drop_node_recursive<T>(node_ptr: *mut Node<T>) {
+            // Avoids a null pointer dereference
+            if node_ptr.is_null() {
+                return;
+            }
 
-/** Instantiates a new Tree with a default root */
-fn new() -> GenTree<Heading> {
-    let data = Heading::new_root(0);
-    let root: Pos<Heading> = Some(Box::into_raw(Node::build(Some(data)))); // Placeholder
-    GenTree { root, size: 1 }
+            // Dereference the pointer and process its children
+            let node = &mut *node_ptr;
+            for &child_ptr in node.children.iter() {
+                if let Some(child_ptr) = child_ptr {
+                    drop_node_recursive(child_ptr);
+                }
+            }
+
+            // Deallocate the current node
+            let _ = Box::from_raw(node_ptr);
+        }
+
+        unsafe {
+            if let Some(root_ptr) = self.root {
+                drop_node_recursive(root_ptr);
+            }
+        }
+    }
 }
 
 /** Takes a path to a Markdown file, parses it for title and headings,
@@ -173,7 +196,6 @@ fn parse(root: &Path) -> (String, Vec<Heading>) {
     let mut headings: Vec<Heading> = Vec::new();
 
     // Read input
-    //let file_path = std::path::Path::new("./src/trees/mock_data.md");
     let file_path = root;
     let file = File::open(file_path).unwrap(); // TODO: Fix lazy error handling
     let reader = BufReader::new(file);
@@ -205,9 +227,8 @@ fn parse(root: &Path) -> (String, Vec<Heading>) {
 
 /** Constructs a tree of Heading types */
 fn construct(level: usize, data: &Vec<Heading>) -> GenTree<Heading> {
-    //let level = level - 1; // Keeps main.rs clean
     // Instantiates a Tree with a generic root and traversal positioning
-    let mut tree: GenTree<Heading> = new();
+    let mut tree = GenTree::<Heading>::new();
     let mut level_cursor = level;
     let mut position_cursor: Pos<Heading> = tree.root;
 
@@ -260,24 +281,24 @@ fn construct(level: usize, data: &Vec<Heading>) -> GenTree<Heading> {
     tree
 }
 
-/** Serves as a wrapper for a recursive preorder(ish) traversal function;
+/** A wrapper for a recursive preorder(ish) traversal function;
 Contains logic to print [] on empty trees for more appealing presentation */
 fn pretty_print(name: &str, position: &Pos<Heading>) {
     if let Some(p) = position {
         let children: &Vec<Pos<Heading>> = unsafe { (*(*p)).children.as_ref() };
         if children.len() == 0 {
-            println!("📄 {}\n\t[]\n", name);
+            println!("📄 {}\n\t[]\n", name); // Empty trees
         } else {
             println!("📄 {}\n\t│", name);
-            preorder_mod(position, "");
+            preorder(position, "");
             println!("");
         }
     }
 }
 
-/** Traverse the tree recursively, printing each node's title and children
-with appropriate box drawing components */
-fn preorder_mod(position: &Pos<Heading>, prefix: &str) {
+/** Modified preorder traversal function that walks the tree recursively 
+printing each node's title and children with appropriate box drawing components */
+fn preorder(position: &Pos<Heading>, prefix: &str) {
     // Checks that the position (node) exists
     if let Some(p) = position {
         // Visit the node at the referenced position
@@ -290,10 +311,10 @@ fn preorder_mod(position: &Pos<Heading>, prefix: &str) {
             index -= 1;
             if index == 0 {
                 println!("\t{}└── {}", prefix, node.title);
-                preorder_mod(e, &format!("{}    ", prefix));
+                preorder(e, &format!("{}    ", prefix));
             } else {
                 println!("\t{}├── {}", prefix, node.title);
-                preorder_mod(e, &format!("{}│   ", prefix));
+                preorder(e, &format!("{}│   ", prefix));
             }
         }
     } else {
@@ -301,14 +322,13 @@ fn preorder_mod(position: &Pos<Heading>, prefix: &str) {
     }
 }
 
-/** This function chains the module's utility functions to pretty-print
-a table of contents for each Markdown file in the specified directory;
-The is_file() path contains logic to build a tree from filtered values, 
-skipping headers above the user-supplied level argument;
+/** A recursive function that chains the module's utility functions to 
+pretty-print a table of contents for each Markdown file in the specified 
+directory; The is_file() path contains logic to build a tree from filtered 
+values, skipping headers above the user-supplied level argument;
 The function also substitues the file name (if any) for all MD files
 not formatted with Astro's frontmatter */
 pub fn navigator(level: usize, path: &Path) {
-    // 1) Walks the root path recursively, passing file paths to the parse
     if path.is_dir() {
         for e in path.read_dir().expect("read_dir call failed") {
             let entry = e.expect("failure to deconstruct value");
@@ -337,39 +357,9 @@ pub fn navigator(level: usize, path: &Path) {
     }
 }
 
-impl<T> Drop for GenTree<T> {
-    fn drop(&mut self) {
-        /** Recursive tree destructor */
-        // TODO: Update implementation with NonNull
-        // to avoid null pointer dereference check
-        unsafe fn drop_node_recursive<T>(node_ptr: *mut Node<T>) {
-            // Avoids a null pointer dereference
-            if node_ptr.is_null() {
-                return;
-            }
+#[cfg(test)]
+mod tests{
 
-            // Dereference the pointer and process its children
-            let node = &mut *node_ptr;
-            for &child_ptr in node.children.iter() {
-                if let Some(child_ptr) = child_ptr {
-                    drop_node_recursive(child_ptr);
-                }
-            }
-
-            // Deallocate the current node
-            let _ = Box::from_raw(node_ptr);
-        }
-
-        unsafe {
-            if let Some(root_ptr) = self.root {
-                drop_node_recursive(root_ptr);
-            }
-        }
-    }
-}
-
-#[cfg(test)] 
-mod tests {
     use super::*;
 
     #[test]
@@ -378,7 +368,7 @@ mod tests {
         unsafe {
     
             // Creates a tree with a default ROOT node
-            let mut tree: GenTree<Heading> = new();
+            let mut tree = GenTree::<Heading>::new();
             if let Some(r) = tree.root {
                 let h: Heading = (*r).data.clone().unwrap();
                 assert_eq!(&h.title, "ROOT");
