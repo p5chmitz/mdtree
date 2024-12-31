@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::path::PathBuf; // Imports lib.rs
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
