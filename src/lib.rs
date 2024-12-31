@@ -14,14 +14,6 @@ impl Heading {
     fn new(title: String, level: usize) -> Heading {
         Heading { level, title }
     }
-
-    /** For building placeholder nodes */
-    fn new_root(level: usize) -> Heading {
-        Heading {
-            level,
-            title: "ROOT".to_string(),
-        }
-    }
 }
 
 /** A position in the tree as raw pointer to a Node, generic over T */
@@ -68,8 +60,8 @@ impl<T> GenTree<T> {
 
     /** Instantiates a new Tree with a default root */
     fn new() -> GenTree<Heading> {
-        let data = Heading::new_root(0);
-        let root: Pos<Heading> = Some(Box::into_raw(Node::build(Some(data)))); // Placeholder
+        let data = Heading::new("ROOT".to_string(), 0);
+        let root: Pos<Heading> = Some(Box::into_raw(Node::build(Some(data))));
         GenTree { root, size: 1 }
     }
 
@@ -94,7 +86,7 @@ impl<T> GenTree<T> {
         }
     }
 
-    /** Adds a child to a parent's child arena Vec<Pos<T>> */
+    /** Adds a child to a parent's children field represented as Vec<Pos<T>> */
     fn add_child(&mut self, ancestor: Pos<T>, node: Pos<T>) {
         unsafe {
             if let Some(p) = ancestor {
