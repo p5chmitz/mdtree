@@ -1,10 +1,10 @@
-use std::fs::File; // Used by parse()
-use std::io::{BufRead, BufReader}; // Used by parse()
-use std::path::Path; // Used by parse()
+// NOTE: All imports used by parse()
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
-use regex::Regex; // Used by parse()
+use regex::Regex;
 
-#[derive(Clone, Debug)]
 struct Heading {
     level: usize,
     title: String,
@@ -20,7 +20,6 @@ impl Heading {
 type Pos<T> = Option<*mut Node<T>>;
 
 /** Represents a general tree with a collection of children */
-#[derive(PartialEq)]
 struct Node<T> {
     parent: Pos<T>,
     children: Vec<Pos<T>>,
@@ -51,7 +50,6 @@ tree structure with a root node that contains a single raw pointer
 to the root node and the structure's size.
 The genericity of the struct means you'll have to explicitly
 type associated functions. */
-#[derive(Debug)]
 struct GenTree<T> {
     root: Pos<T>,
     size: usize,
@@ -104,10 +102,10 @@ impl<T> GenTree<T> {
 
     // NOTE: The rest of the methods in this impl block are just used in testing
 
-    /** Returns a cloned set of children from a given position, if any */
-    fn _children(&self, node: Pos<T>) -> Option<Vec<Pos<T>>> {
+    /** Returns a reference to the collection of children for a given position, if any */
+    fn _children(&self, node: Pos<T>) -> Option<&Vec<Pos<T>>> {
         if let Some(c) = node {
-            Some(unsafe { (*c).children.clone() })
+            Some(unsafe { (*c).children.as_ref() })
         } else {
             None
         }
@@ -218,7 +216,7 @@ fn parse(root: &Path) -> (String, Vec<Heading>) {
 }
 
 /** Constructs a tree of Heading types */
-fn construct(level: usize, data: &Vec<Heading>) -> GenTree<Heading> {
+fn construct(level: usize, data: Vec<Heading>) -> GenTree<Heading> {
     // Instantiates a Tree with a generic root and traversal positioning
     let mut tree = GenTree::<Heading>::new();
     let mut level_cursor = level;
@@ -226,18 +224,20 @@ fn construct(level: usize, data: &Vec<Heading>) -> GenTree<Heading> {
 
     // Constructs tree from Vec<T>
     for e in data {
-        // Creates a position from a cloned list entry
-        let node: Pos<Heading> = Some(Box::into_raw(Node::build(Some(e.clone()))));
+        // Creates an owned position for each list entry
+        let current_level = e.level; // Keep the borrow checker happy
+        let node: Pos<Heading> = Some(Box::into_raw(Node::build(Some(e))));
 
         // Case: Adds a child to the current parent and sets level cursor
-        if e.level == level_cursor + 1 {
+        if current_level == level_cursor + 1 {
             tree.add_child(position_cursor, node);
             let data = tree.get(&node).unwrap();
             level_cursor = data.level;
         }
+
         // Case: Adds a child with multi-generational skips with empty nodes
-        else if e.level > level_cursor + 1 {
-            let diff = e.level - level_cursor;
+        else if current_level > level_cursor + 1 {
+            let diff = current_level - level_cursor;
             for _ in 1..diff {
                 let heading = Heading::new("[]".to_string(), 0);
                 let placeholder: Pos<Heading> = Some(Box::into_raw(Node::build(Some(heading))));
@@ -249,14 +249,16 @@ fn construct(level: usize, data: &Vec<Heading>) -> GenTree<Heading> {
             let data = tree.get(&node).unwrap();
             level_cursor = data.level;
         }
+
         // Case: Adds sibling to current parent
-        else if e.level == level_cursor {
+        else if current_level == level_cursor {
             tree.add_child(tree.parent(position_cursor).expect("No parent"), node);
         }
+
         // Case: Adds a child to the appropriate ancestor,
         // ensuring proper generational skips
         else {
-            let diff = level_cursor - e.level;
+            let diff = level_cursor - current_level;
             position_cursor = tree.parent(position_cursor).expect("No parent");
             for _ in 0..diff {
                 position_cursor = tree.parent(position_cursor).expect("None parent");
@@ -342,7 +344,7 @@ pub fn navigator(level: usize, path: &Path) {
                     }
                 }
                 let filtered = parsed.1.into_iter().filter(|h| h.level > level).collect();
-                let tree = construct(level, &filtered);
+                let tree = construct(level, filtered);
                 pretty_print(&name, &tree.root);
             }
         }
@@ -357,55 +359,56 @@ mod tests{
     #[test]
     fn basic_function_test() {
         use std::ptr; // Used by test
-        unsafe {
     
-            // Creates a tree with a default ROOT node
-            let mut tree = GenTree::<Heading>::new();
-            if let Some(r) = tree.root {
-                let h: Heading = (*r).data.clone().unwrap();
+        // Creates a tree with a default ROOT node
+        let mut tree = GenTree::<Heading>::new();
+        if let Some(r) = tree.root {
+            if let Some(h) = unsafe { (*r).data.as_ref() } {
                 assert_eq!(&h.title, "ROOT");
+            } else {
+                panic!("Data is None!");
             }
-    
-            // Builds a Heading that simulates an H2, converts it to a Node,
-            // and finally converts it to a position Pos<Heading> as raw pointer "a"
-            let h2 = Heading::new("H2".to_string(), 2);
-            let node_a: Box<Node<Heading>> = Node::build(Some(h2));
-            let node_a_ptr: Pos<Heading> = Some(Box::into_raw(node_a));
-    
-            // Adds a to root
-            tree.add_child(tree.root, node_a_ptr);
-    
-            // Checks that add_child() assigns correct parent for the node
-            assert_eq!(tree.root, tree.parent(node_a_ptr).expect("No parent"));
-            // Checks that the parent (ROOT) has exactly one child as the "a" node
-            assert_eq!(tree._children(tree.root), vec![node_a_ptr].into());
-            // Checks that the ROOT's children list _contains_ the "a" node
-            assert!(tree._children(tree.root).unwrap().iter().any(|&item| {
-                if let Some(ptr) = item {
-                    ptr::eq(ptr, node_a_ptr.unwrap())
-                } else {
-                    false
-                }
-            }));
-    
-            // At this point there should be one node with one default ROOT node
-            assert_eq!(tree.size, 2);
-    
-            // Builds a Heading that simulates an H3, converts it to a Node,
-            // and finally converts it to a position Pos<Heading> as raw pointer "b"
-            let h3 = Heading::new("H3".to_string(), 3);
-            let node_b: Box<Node<Heading>> = Node::build(Some(h3));
-            let node_b_ptr: Pos<Heading> = Some(Box::into_raw(node_b));
-    
-            // Adds "b" to "a"
-            tree.add_child(node_a_ptr, node_b_ptr);
-    
-            // Checks the tree's size, height, and depth of "b"
-            // NOTE: size, height, and depth include the ROOT node
-            assert_eq!(tree.size, 3);
-            assert_eq!(tree._height(tree.root), Some(3));
-            assert_eq!(tree._depth(node_b_ptr), Some(3));
         }
+    
+        // Builds a Heading that simulates an H2, converts it to a Node,
+        // and finally converts it to a position Pos<Heading> as raw pointer "a"
+        let h2 = Heading::new("H2".to_string(), 2);
+        let node_a: Box<Node<Heading>> = Node::build(Some(h2));
+        let node_a_ptr: Pos<Heading> = Some(Box::into_raw(node_a));
+    
+        // Adds a to root
+        tree.add_child(tree.root, node_a_ptr);
+    
+        // Checks that add_child() assigns correct parent for the node
+        assert_eq!(tree.root, tree.parent(node_a_ptr).expect("No parent"));
+        // Checks that the parent (ROOT) has exactly one child as the "a" node
+        assert_eq!(tree._children(tree.root), Some(&vec![node_a_ptr]));
+        // Checks that the ROOT's children list _contains_ the "a" node
+        assert!(tree._children(tree.root).unwrap().iter().any(|&item| {
+            if let Some(ptr) = item {
+                ptr::eq(ptr, node_a_ptr.unwrap())
+            } else {
+                false
+            }
+        }));
+    
+        // At this point there should be one node with one default ROOT node
+        assert_eq!(tree.size, 2);
+    
+        // Builds a Heading that simulates an H3, converts it to a Node,
+        // and finally converts it to a position Pos<Heading> as raw pointer "b"
+        let h3 = Heading::new("H3".to_string(), 3);
+        let node_b: Box<Node<Heading>> = Node::build(Some(h3));
+        let node_b_ptr: Pos<Heading> = Some(Box::into_raw(node_b));
+    
+        // Adds "b" to "a"
+        tree.add_child(node_a_ptr, node_b_ptr);
+    
+        // Checks the tree's size, height, and depth of "b"
+        // NOTE: size, height, and depth include the ROOT node
+        assert_eq!(tree.size, 3);
+        assert_eq!(tree._height(tree.root), Some(3));
+        assert_eq!(tree._depth(node_b_ptr), Some(3));
     }
     
     #[test]
