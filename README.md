@@ -11,7 +11,7 @@ I write a lot of Markdown and I often need high-level views of document contents
 My website is written with [Astro frontmatter](https://docs.astro.build/en/guides/markdown-content/) so the program will display `title` values if they exist for the document. If no `title` values exist the program prints the name of the document from the file path.
 
 ## Install 
-Installation is dirt simple if you have Rust (or more specifically Cargo) installed. You can install the program by running `cargo install --git https://github.com/p5chmitz/mdtree`. See the [cargo-install](https://doc.rust-lang.org/cargo/commands/cargo-install.html) docs for more details about building and installing binaries from source code.
+Installation is dirt simple if you have the Rust (and more specifically `cargo` and `rustc`) installed. You can install the program by running `cargo install --git https://github.com/p5chmitz/mdtree`. See the [cargo-install](https://doc.rust-lang.org/cargo/commands/cargo-install.html) docs for more details about building and installing binaries from source code.
 
 ## Use
 You can use the `-h` / `--help` option to see a list of arguments with descriptions. Since there are only two right now its easy to just list them here:
