@@ -191,11 +191,21 @@ fn parse(root: &Path) -> (String, Vec<Heading>) {
     let reader = BufReader::new(file);
 
     // Read the entire file into a single string
-    let content: String = reader
-        .lines()
-        .map(|l| l.unwrap())
-        .collect::<Vec<_>>()
-        .join("\n");
+    // Imperative style
+    let mut content = String::new();
+    for line_result in reader.lines() {
+        let line = line_result.unwrap();
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        content.push_str(&line);
+    }
+    // Functional style
+    //let content: String = reader
+    //    .lines()
+    //    .map(|l| l.unwrap())
+    //    .collect::<Vec<_>>()
+    //    .join("\n");
 
     // Extract the document title
     if let Some(captures) = t.captures(&content) {
@@ -330,22 +340,25 @@ pub fn navigator(level: usize, path: &Path) {
         }
     } else if path.is_file() {
         if let Some(ext) = path.extension() {
-            if ext == "md" {
-                println!("{}", path.display());
-                let parsed = parse(path);
-                let mut name: String = parsed.0;
-                if name == "" {
-                    if let Some(n) = path
-                        .file_name()
-                        .expect("Error extracting file name")
-                        .to_str()
-                    {
-                        name = n.to_string()
+            match ext.to_str() { 
+                Some("md") | Some("mdx") => {
+                    println!("{}", path.display());
+                    let parsed = parse(path);
+                    let mut name: String = parsed.0;
+                    if name == "" {
+                        if let Some(n) = path
+                            .file_name()
+                            .expect("Error extracting file name")
+                            .to_str()
+                        {
+                            name = n.to_string()
+                        }
                     }
+                    let filtered = parsed.1.into_iter().filter(|h| h.level > level).collect();
+                    let tree = construct(level, filtered);
+                    pretty_print(&name, &tree.root);
                 }
-                let filtered = parsed.1.into_iter().filter(|h| h.level > level).collect();
-                let tree = construct(level, filtered);
-                pretty_print(&name, &tree.root);
+                _ => ()
             }
         }
     }
